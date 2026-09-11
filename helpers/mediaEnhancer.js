@@ -21,9 +21,14 @@ const SEEK_RETRY_MAX = 8;
 function formatTime(microseconds) {
   if (!microseconds || microseconds < 0) return "0:00";
   const totalSeconds = Math.floor(microseconds / 1_000_000);
-  const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  const minuteText = hours
+    ? minutes.toString().padStart(2, "0")
+    : minutes.toString();
+  const time = `${minuteText}:${seconds.toString().padStart(2, "0")}`;
+  return hours ? `${hours}:${time}` : time;
 }
 
 const LOOP_ORDER = ["None", "Track", "Playlist"];
