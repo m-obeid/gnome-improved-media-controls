@@ -72,29 +72,59 @@ export const MprisPlayer = GObject.registerClass({
         this.busName = busName;
         this._proxy = null;
         this._rootProxy = null;
+        this._cancellable = new Gio.Cancellable();
+        this._destroyed = false;
 
-        this._proxy = new MprisPlayerProxy(
+        // Passing no callback makes makeProxyWrapper use synchronous
+        // initialization.  That performs GetAll on the shell's main thread;
+        // a slow or half-started player can therefore freeze the entire shell
+        // exactly when NameOwnerChanged announces it.  Keep both proxy loads
+        // asynchronous and cancel them if the player disappears meanwhile.
+        new MprisPlayerProxy(
             Gio.DBus.session,
             busName,
             '/org/mpris/MediaPlayer2',
-            null,
-            null,
+            (proxy, error) => {
+                if (this._destroyed) return;
+                if (error) {
+                    if (!this._isCancelled(error))
+                        logError(error, `ImprovedMediaControls: Failed to initialize player proxy for ${busName}`);
+                    return;
+                }
+
+                this._proxy = proxy;
+                proxy.connectObject('g-properties-changed',
+                    () => this.emit('changed'), this);
+                // The initial property load does not emit
+                // g-properties-changed, so explicitly wake consumers.
+                this.emit('changed');
+            },
+            this._cancellable,
             Gio.DBusProxyFlags.GET_INVALIDATED_PROPERTIES
         );
 
-        this._proxy.connectObject('g-properties-changed',
-            () => this.emit('changed'), this);
+        new MprisRootProxy(
+            Gio.DBus.session,
+            busName,
+            '/org/mpris/MediaPlayer2',
+            (proxy, error) => {
+                if (this._destroyed) return;
+                if (error) {
+                    if (!this._isCancelled(error))
+                        logError(error, `ImprovedMediaControls: Failed to initialize root proxy for ${busName}`);
+                    return;
+                }
+                this._rootProxy = proxy;
+                this.emit('changed');
+            },
+            this._cancellable,
+            Gio.DBusProxyFlags.GET_INVALIDATED_PROPERTIES
+        );
+    }
 
-        try {
-            this._rootProxy = new MprisRootProxy(
-                Gio.DBus.session,
-                busName,
-                '/org/mpris/MediaPlayer2',
-                null,
-                null,
-                Gio.DBusProxyFlags.GET_INVALIDATED_PROPERTIES
-            );
-        } catch (_) { }
+    _isCancelled(error) {
+        return typeof error?.matches === 'function' &&
+            error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED);
     }
 
     get status() {
@@ -355,11 +385,14 @@ export const MprisPlayer = GObject.registerClass({
     }
 
     destroy() {
+        this._destroyed = true;
+        this._cancellable?.cancel();
         if (this._proxy) {
             this._proxy.disconnectObject(this);
             this._proxy = null;
         }
         this._rootProxy = null;
+        this._cancellable = null;
     }
 });
 
