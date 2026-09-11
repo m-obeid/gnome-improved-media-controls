@@ -110,6 +110,13 @@ export const MprisPlayer = GObject.registerClass({
     getState() {
         if (!this._proxy) return null;
         const metadata = this._unpackMetadata(this._proxy.Metadata);
+        const reportedLength = Number(metadata['mpris:length']);
+        // Chromium represents an unbounded live stream with INT64_MAX. That
+        // value cannot be represented safely by JavaScript and is not a real
+        // duration, so expose it to the UI as an unknown length instead.
+        const length = Number.isSafeInteger(reportedLength) && reportedLength > 0
+            ? reportedLength
+            : 0;
         let desktopEntry = '';
         let identity = '';
         if (this._rootProxy) {
@@ -125,7 +132,7 @@ export const MprisPlayer = GObject.registerClass({
                 : metadata['xesam:artist'] || '',
             album: metadata['xesam:album'] || '',
             artUrl: metadata['mpris:artUrl'] || '',
-            length: Number(metadata['mpris:length']) || 0,
+            length,
             trackId: metadata['mpris:trackid'] || '',
             status: this._proxy.PlaybackStatus || 'Stopped',
             canGoNext: this._proxy.CanGoNext !== false,
