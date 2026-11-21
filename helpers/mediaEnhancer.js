@@ -8,6 +8,7 @@ import { Slider } from "resource:///org/gnome/shell/ui/slider.js";
 
 import { guard } from "./util.js";
 import { MediaGrouping } from "./mediaGroup.js";
+import { ArtworkLoader } from "./artwork.js";
 
 const POLL_INTERVAL_MS = 1000;
 
@@ -59,6 +60,7 @@ export class MediaEnhancer {
     this._grouping = null;
 
     this._coverDir = null;
+    this._artworkLoader = new ArtworkLoader();
 
     this._sessionId = Main.sessionMode.connect("updated", () =>
       this._onSessionModeChanged(),
@@ -427,6 +429,8 @@ export class MediaEnhancer {
     // Delete from the map BEFORE destroying actors: every async/timer guard
     // relies on `_enhanced.get(message)` returning null once teardown starts.
     this._enhanced.delete(message);
+    entry._artCancellable?.cancel();
+    entry._artCancellable = null;
 
     // Drop the pending cover retry and the temp art file (safe regardless of
     // whether the message itself is being torn down).
@@ -565,8 +569,27 @@ export class MediaEnhancer {
     // browsers especially - reuse a single art file path and rewrite its
     // contents on every track, so the URL alone never signals staleness.
     if (artUrl === entry._coverUrl && trackId === entry._coverTrackId) return;
+    entry._artCancellable?.cancel();
+    entry._artCancellable = null;
+    if (entry._coverRetryId) {
+      GLib.source_remove(entry._coverRetryId);
+      entry._coverRetryId = 0;
+    }
     entry._coverUrl = artUrl;
     entry._coverTrackId = trackId;
+
+    if (/^https?:\/\//i.test(artUrl)) {
+      this._applyFallbackCover(entry);
+      const cancellable = new Gio.Cancellable();
+      entry._artCancellable = cancellable;
+      this._artworkLoader.load(artUrl, cancellable, (bytes) => {
+        if (this._enhanced.get(entry.message) !== entry ||
+            entry._artCancellable !== cancellable || !bytes) return;
+        guard(() => this._applyCoverBytes(entry, bytes.get_data()),
+          "remote cover failed");
+      });
+      return;
+    }
 
     if (artUrl.startsWith("file://")) {
       if (this._applyFileCover(entry, artUrl)) return;
@@ -597,6 +620,10 @@ export class MediaEnhancer {
       return false;
     }
 
+    return this._applyCoverBytes(entry, bytes);
+  }
+
+  _applyCoverBytes(entry, bytes) {
     // Copy the art to a fresh, unique path. St's texture cache keys on the
     // file URI with no awareness of content/mtime, so reusing a path would
     // hand us the previous track's cached texture. A new path forces a fresh
@@ -604,11 +631,8 @@ export class MediaEnhancer {
     const dir = this._coverTmpDir();
     if (!dir) return false;
     const seq = (entry._coverSeq = (entry._coverSeq || 0) + 1);
-    const ext = (
-      path.match(/\.(png|jpe?g|webp|gif|bmp)$/i)?.[1] || "img"
-    ).toLowerCase();
     const safeBus = entry.busName.replace(/[^a-zA-Z0-9]/g, "_");
-    const outPath = `${dir}/${safeBus}-${seq}.${ext}`;
+    const outPath = `${dir}/${safeBus}-${GLib.uuid_string_random()}-${seq}.img`;
     try {
       if (!GLib.file_set_contents(outPath, bytes)) return false;
     } catch (_) {
@@ -892,6 +916,7 @@ export class MediaEnhancer {
     }
     this._manager.disconnectObject(this);
     this._detach();
+    this._artworkLoader.destroy();
     if (this._pollId) {
       GLib.source_remove(this._pollId);
       this._pollId = 0;

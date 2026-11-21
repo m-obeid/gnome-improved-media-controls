@@ -29,6 +29,9 @@ look, app name + icon, and lock-screen support (GNOME 49+), and adds on top:
 - a draggable **seek bar** with elapsed / total time,
 - **shuffle** and **loop** (None → Track → Playlist) toggles.
 
+Album art supports local files and HTTP/HTTPS URLs, including Spotify artwork,
+in both the top bar and media notifications.
+
 Because these are the real notifications, multiple players each get their own
 native message, and the "No notifications" placeholder behaves correctly.
 
