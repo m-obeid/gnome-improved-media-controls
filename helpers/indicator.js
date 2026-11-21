@@ -21,6 +21,7 @@ import {
   CLICK_VOLUME_DOWN,
 } from "./constants.js";
 import { ScrollingLabel } from "./scrollingLabel.js";
+import { ArtworkLoader } from "./artwork.js";
 
 const SCROLL_NOTCH = 1.0;
 
@@ -38,6 +39,9 @@ export const Indicator = GObject.registerClass(
       this._extension = extension;
       this._mprisManager = mprisManager;
       this._currentArtUrl = null;
+      this._artworkLoader = new ArtworkLoader();
+      this._artCancellable = null;
+      this._artIcon = null;
       this._scrollAccum = 0;
       this._mixer = null;
       this._pendingVolumeDelta = 0;
@@ -92,6 +96,7 @@ export const Indicator = GObject.registerClass(
       // On the lock screen the notification carries the controls; the top-bar
       // button serves no purpose there.
       if (Main.sessionMode.isLocked) {
+        this._cancelArtwork();
         this.hide();
         return;
       }
@@ -99,6 +104,7 @@ export const Indicator = GObject.registerClass(
       const media = this._mprisManager.currentMedia;
 
       if (!media || media.status === "Stopped") {
+        this._cancelArtwork();
         this.hide();
         return;
       }
@@ -273,7 +279,7 @@ export const Indicator = GObject.registerClass(
 
     _updateIcon(media, prefs) {
       if (prefs.iconType === ICON_TYPE_STATUS) {
-        this._currentArtUrl = null;
+        this._cancelArtwork();
         this._iconActor.gicon = null;
         this._setDesaturate(false);
         this._iconActor.icon_size = this._symbolicSize(prefs);
@@ -286,25 +292,47 @@ export const Indicator = GObject.registerClass(
 
       if (
         prefs.iconType === ICON_TYPE_ART &&
-        media.artUrl &&
-        media.artUrl.startsWith("file://")
+        media.artUrl
       ) {
-        if (media.artUrl !== this._currentArtUrl) {
-          this._currentArtUrl = media.artUrl;
-          try {
-            const file = Gio.File.new_for_uri(media.artUrl);
-            this._setDesaturate(false);
-            this._iconActor.icon_size = prefs.iconSize;
-            this._iconActor.gicon = new Gio.FileIcon({ file });
-          } catch (_) {
-            this._setAppIcon(media);
+        const artKey = `${media.busName}\n${media.trackId}\n${media.artUrl}`;
+        if (artKey !== this._currentArtUrl) {
+          this._cancelArtwork();
+          this._currentArtUrl = artKey;
+          this._setAppIcon(media);
+          if (/^https?:\/\//i.test(media.artUrl)) {
+            const cancellable = new Gio.Cancellable();
+            this._artCancellable = cancellable;
+            this._artworkLoader.load(media.artUrl, cancellable, (bytes) => {
+              if (this._artCancellable !== cancellable || !bytes) return;
+              this._artIcon = new Gio.BytesIcon({ bytes });
+              this._showArtwork(this._preferences);
+            });
+          } else if (media.artUrl.startsWith("file://")) {
+            try {
+              const file = Gio.File.new_for_uri(media.artUrl);
+              this._artIcon = new Gio.FileIcon({ file });
+            } catch (_) {}
           }
         }
+        if (this._artIcon) this._showArtwork(prefs);
         return;
       }
 
-      this._currentArtUrl = null;
+      this._cancelArtwork();
       this._setAppIcon(media);
+    }
+
+    _showArtwork(prefs) {
+      this._setDesaturate(false);
+      this._iconActor.icon_size = prefs.iconSize;
+      this._iconActor.gicon = this._artIcon;
+    }
+
+    _cancelArtwork() {
+      this._artCancellable?.cancel();
+      this._artCancellable = null;
+      this._currentArtUrl = null;
+      this._artIcon = null;
     }
 
     // Desaturate (grayscale) a full-colour app icon so it blends with the
@@ -407,6 +435,8 @@ export const Indicator = GObject.registerClass(
     }
 
     destroy() {
+      this._cancelArtwork();
+      this._artworkLoader.destroy();
       if (this._mixer) {
         this._mixer.disconnectObject(this);
         this._mixer.close();
