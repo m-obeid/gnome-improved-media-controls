@@ -578,7 +578,7 @@ export class MediaEnhancer {
     entry._coverUrl = artUrl;
     entry._coverTrackId = trackId;
 
-    if (/^https?:\/\//i.test(artUrl)) {
+    if (/^(?:https?:\/\/|data:)/i.test(artUrl)) {
       this._applyFallbackCover(entry);
       const cancellable = new Gio.Cancellable();
       entry._artCancellable = cancellable;
@@ -586,7 +586,7 @@ export class MediaEnhancer {
         if (this._enhanced.get(entry.message) !== entry ||
             entry._artCancellable !== cancellable || !bytes) return;
         guard(() => this._applyCoverBytes(entry, bytes.get_data()),
-          "remote cover failed");
+          "artwork cover failed");
       });
       return;
     }

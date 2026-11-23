@@ -299,7 +299,7 @@ export const Indicator = GObject.registerClass(
           this._cancelArtwork();
           this._currentArtUrl = artKey;
           this._setAppIcon(media);
-          if (/^https?:\/\//i.test(media.artUrl)) {
+          if (/^(?:https?:\/\/|data:)/i.test(media.artUrl)) {
             const cancellable = new Gio.Cancellable();
             this._artCancellable = cancellable;
             this._artworkLoader.load(media.artUrl, cancellable, (bytes) => {

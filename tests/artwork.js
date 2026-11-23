@@ -41,6 +41,29 @@ function decode(bytes) {
 }
 
 async function run() {
+  const dataUrl = `data:image/png;base64,${GLib.base64_encode(png)}`;
+  const embedded = await load(dataUrl);
+  assert(embedded?.get_size() === png.length, "Data URI: missing image bytes");
+  assert(decode(embedded).get_width() === 1, "Data URI: undecodable image");
+  for (const url of [
+    "data:image/png;base64,",
+    "data:image/png;base64,!!!!",
+    "data:image/png;base64,AAAA=AAA",
+    "data:image/png;base64,AAA",
+    "data:image/png;base64,AAAA====",
+    "data:image/png,not-base64",
+    "data:text/plain;base64,AAAA",
+    "data:image/png;base64",
+  ])
+    assert(await load(url) === null, "Invalid data URI: expected a safe fallback");
+
+  const cancelledData = new Gio.Cancellable();
+  cancelledData.cancel();
+  loader.load(dataUrl, cancelledData, () => {
+    throw new Error("Cancelled data URI must not update the UI");
+  });
+  print("PASS: base64 image decoding, invalid data URIs, cancelled data URI");
+
   for (const path of ["/art", "/redirect"]) {
     const bytes = await load(base + path);
     assert(bytes?.get_size() === png.length, `${path}: missing image bytes`);

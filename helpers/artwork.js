@@ -1,7 +1,7 @@
 import GLib from "gi://GLib";
 import Soup from "gi://Soup?version=3.0";
 
-// Gio.FileIcon handles local files, but Spotify publishes HTTPS artwork.
+// Gio.FileIcon handles local files; Spotify uses HTTPS and MPV embeds data URIs.
 // Keep network I/O off the shell thread and let callers cancel obsolete art.
 export class ArtworkLoader {
   constructor() {
@@ -9,7 +9,20 @@ export class ArtworkLoader {
   }
 
   load(url, cancellable, callback) {
+    if (cancellable.is_cancelled()) return;
     try {
+      if (/^data:/i.test(url)) {
+        const comma = url.indexOf(",");
+        const header = url.slice(0, comma);
+        const payload = url.slice(comma + 1);
+        // GLib's decoder silently skips invalid characters, so validate first.
+        if (!/^data:image\/[a-z0-9.+-]+;base64$/i.test(header) ||
+            !payload.length || payload.length % 4 !== 0 ||
+            !/^[A-Za-z0-9+/]*={0,2}$/.test(payload))
+          throw new Error("Invalid base64 artwork URI");
+        callback(new GLib.Bytes(GLib.base64_decode(payload)));
+        return;
+      }
       if (!/^https?:\/\//i.test(url)) throw new Error("Unsupported artwork URI");
       const message = Soup.Message.new("GET", url);
       if (!message) throw new Error("Invalid artwork URI");
