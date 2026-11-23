@@ -1,6 +1,9 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
+import { activatePlayerWindow, activatePlayerApp } from './playerActivation.js';
 
 const DBusInterface = `<node>
     <interface name="org.freedesktop.DBus">
@@ -182,9 +185,23 @@ export const MprisPlayer = GObject.registerClass({
     previous() { this._invoke('PreviousRemote'); }
 
     raise() {
-        if (!this._rootProxy) return;
+        if (Main.sessionMode.isLocked || this._destroyed) return;
+        const state = this.getState();
         try {
-            this._rootProxy.RaiseRemote();
+            if (state && activatePlayerWindow(state)) return;
+            if (this._rootProxy?.CanRaise) {
+                this._rootProxy.RaiseRemote((_result, error) => {
+                    if (!error || this._destroyed) return;
+                    logError(error, 'ImprovedMediaControls: Raise failed');
+                    try {
+                        if (state) activatePlayerApp(state.desktopEntry);
+                    } catch (e) {
+                        logError(e, 'ImprovedMediaControls: App activation failed');
+                    }
+                });
+                return;
+            }
+            if (state) activatePlayerApp(state.desktopEntry);
         } catch (e) {
             logError(e, 'ImprovedMediaControls: Raise failed');
         }
