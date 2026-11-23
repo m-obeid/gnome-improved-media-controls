@@ -388,6 +388,14 @@ export class MediaEnhancer {
       ),
     );
 
+    // Keep GNOME's click policy (lock screen, collapsed groups, calendar
+    // dismissal), but route activation through the same resolver as the panel.
+    entry.nativePlayer = message._player;
+    entry.hadOwnRaise = Object.hasOwn(entry.nativePlayer, "raise");
+    entry.nativeRaise = entry.nativePlayer.raise;
+    entry.raiseOverride = () => player.raise();
+    entry.nativePlayer.raise = entry.raiseOverride;
+
     this._enhanced.set(message, entry);
     this._applyExpansion(message, true);
     message.expand(false);
@@ -427,6 +435,10 @@ export class MediaEnhancer {
     // Delete from the map BEFORE destroying actors: every async/timer guard
     // relies on `_enhanced.get(message)` returning null once teardown starts.
     this._enhanced.delete(message);
+    if (entry.nativePlayer.raise === entry.raiseOverride) {
+      if (entry.hadOwnRaise) entry.nativePlayer.raise = entry.nativeRaise;
+      else delete entry.nativePlayer.raise;
+    }
 
     // Drop the pending cover retry and the temp art file (safe regardless of
     // whether the message itself is being torn down).

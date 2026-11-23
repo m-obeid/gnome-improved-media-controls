@@ -29,6 +29,19 @@ look, app name + icon, and lock-screen support (GNOME 49+), and adds on top:
 - a draggable **seek bar** with elapsed / total time,
 - **shuffle** and **loop** (None → Track → Playlist) toggles.
 
+Clicking a media message or using _Raise player_ in the top bar first looks for
+an existing player window. This supports Flatpak mpv even when its MPRIS desktop
+entry is `mpv` rather than `io.mpv.Mpv`. If no window can be identified, it falls
+back to the player's Raise method (if supported), then its running desktop app.
+No new app is launched.
+
+**Chrome/Chromium limitation:** clicking media controls activates the browser
+app and may surface a regular browser window instead of the playing PWA.
+Chromium's Linux MPRIS service does not expose the playing tab/PWA's identity
+and does not implement Raise. PWA window titles can contain only the app name,
+so media-title matching cannot reliably identify the playing window. Precise
+activation requires additional browser integration or upstream Chromium support.
+
 Because these are the real notifications, multiple players each get their own
 native message, and the "No notifications" placeholder behaves correctly.
 
